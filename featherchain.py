@@ -1,5 +1,86 @@
+"""
+Keys:
+  gen private key
+  gen public key
+  Elliptic Curve Cryptography
+  gen address
+  Base58
+
+Wallets:
+  Seeded wallets
+
+Transactions:
+  gen transaction (UTXO (unspent transaction output))
+    hash
+    value
+    inputs from address
+    outputs to address (spent or unspent)
+
+Blocks:
+  The Genesis Block
+  gen block
+    header
+      prev block header hash
+      timestamp
+      difficulty
+      nonce
+      merkle root
+        gen merkle root
+
+    block height
+    header hash
+    transactions
+
+"""
+
 import os, sys, hashlib
 import seccure
+
+class Block(object):
+  class Merkle(object):
+    @staticmethod
+    def gen_root(transactions):
+      pass
+
+    def check_leaf(merkle_root, transaction):
+      pass
+
+class Transaction(object):
+  class Record(object):
+    def __init__(self, address=None, value=0, r_type="input", state=None):
+      """
+      r_type: input | output
+      state: None | change | spent | unspent 
+      """
+      self.address = address
+      self.value = value
+      self.type = r_type
+      self.state = state
+
+  def __init__(self):
+    self.hash = None
+    self.inputs = []
+    self.outputs = []
+
+  def append_input(self, address, value):
+    self.inputs.append(Record(address, value, "input"))
+    return self
+
+  def append_output(self, address, value, state):
+    self.outputs.append(Record(address, value, "output", state))
+    return self
+
+class Wallet(object):
+  def __init__(self, key=None):
+    if key:
+      self.key = key
+    else:
+      self.key = Key()
+      self.key.gen_private_key()
+      self.key.gen_public_key()
+      self.key.gen_address()
+
+    return self.key.address
 
 class Key(object):
   def __init__(self):
