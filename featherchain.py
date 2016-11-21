@@ -33,17 +33,65 @@ Blocks:
 
 """
 
-import os, sys, hashlib
+import os, sys, hashlib, time
 import seccure
 
 class Block(object):
+  def __init__(self, prev_block=None, merkleroot=None, transactions=[]):
+    if not prev_block:
+      self.block_height = 1
+      self.header_hash = hashlib.sha256(hashlib.sha256(bytes(bytearray.fromhex(hex(1479711288)[2:]))).digest()).digest()
+    else:
+      self.header = {
+        "prev_block_hash": prev_block.header_hash,
+        "timestamp": int(time.time()),
+        "merkleroot": merkleroot
+      }
+      header_bytes = b''
+      header_bytes += self.header["prev_block_hash"]
+      header_bytes += bytes(bytearray.fromhex(hex(self.header["timestamp"])[2:]))
+      header_bytes += self.header["merkleroot"]
+
+      self.header_hash = hashlib.sha256(hashlib.sha256(header_bytes).digest()).digest()
+      self.transactions = transactions
+      self.block_height = prev_block.block_height + 1
+
+  def append_transaction(self, transaction):
+    self.transactions.append(transaction)
+    
+  
   class Merkle(object):
     @staticmethod
     def gen_root(transactions):
-      pass
+      if len(transactions) % 2 == 1:
+        transactions.append(transactions[-1])
 
-    def check_leaf(merkle_root, transaction):
-      pass
+      hash_lst = [i for i in map(lambda x: x.hash, transactions)]
+      while True:
+        new_hash_lst = []
+        for i in range(0, len(hash_lst)):
+          if i % 2 == 0:
+            new_hash_lst.append(hashlib.sha256(hash_lst[i] + hash_lst[i + 1]).digest())
+
+        hash_lst = new_hash_lst
+        if len(hash_lst) == 1:
+          break
+
+        if len(hash_lst) % 2 == 1:
+          hash_lst.append(hash_lst[-1])
+
+      return hash_lst[0]
+
+    def check_leaf(merkle_root, merkle_path):
+      def merge(node):
+        if len(node) == 1:
+          return node[0]
+
+        hash_left = merge(node[0]) if type(node[0]) == list else node[0]
+        hash_right = merge(node[1]) if type(node[1]) == list else node[1]
+        return hashlib.sha256(hash_left + hash_right)
+
+      return merge(merkle_path) == merkle_root
 
 class Transaction(object):
   class Record(object):
@@ -57,8 +105,8 @@ class Transaction(object):
       self.type = r_type
       self.state = state
 
-  def __init__(self):
-    self.hash = None
+  def __init__(self, hash=None):
+    self.hash = hash
     self.inputs = []
     self.outputs = []
 
@@ -115,7 +163,3 @@ class Key(object):
     self.address = ripemd160.digest()
     return self.address
 
-class Util(object):
-  @staticmethod
-  def bytes_to_hex(b):
-    return hex(int.from_bytes(b, byteorder='little'))[2:]
