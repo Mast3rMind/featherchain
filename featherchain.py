@@ -1,38 +1,3 @@
-"""
-Keys:
-  gen private key
-  gen public key
-  Elliptic Curve Cryptography
-  gen address
-  Base58
-
-Wallets:
-  Seeded wallets
-
-Transactions:
-  gen transaction (UTXO (unspent transaction output))
-    hash
-    value
-    inputs from address
-    outputs to address (spent or unspent)
-
-Blocks:
-  The Genesis Block
-  gen block
-    header
-      prev block header hash
-      timestamp
-      difficulty
-      nonce
-      merkle root
-        gen merkle root
-
-    block height
-    header hash
-    transactions
-
-"""
-
 import os, sys, hashlib, time, pickle, argparse
 import seccure
 import asyncio
@@ -45,6 +10,11 @@ state = {
 }
 
 class Block(object):
+  """ The `Block` in a block chain system """
+
+  def __repr__(self):
+    return 'Block: {}|{}'.format(self.block_height, self.header_hash.hex()) 
+    
   def __init__(self, prev_block=None, merkleroot=None, transactions=[]):
     if not prev_block:
       # here is the definition for genesis block    
@@ -71,8 +41,12 @@ class Block(object):
     
   
   class Merkle(object):
+    """ According to the design, each block contains merkle root for SPV verification """
+    
     @staticmethod
     def gen_root(transactions):
+      """ Generate merkle root by merging binary tree """
+
       if len(transactions) % 2 == 1:
         transactions.append(transactions[-1])
 
@@ -94,6 +68,8 @@ class Block(object):
 
     @staticmethod
     def check_leaf(merkle_root, merkle_path):
+      """ Given a merkle path, got hashed along the path, it should be equal to merkleroot """
+
       def merge(node):
         if len(node) == 1:
           return node[0]
@@ -105,8 +81,10 @@ class Block(object):
       return merge(merkle_path) == merkle_root
 
 class Transaction(object):
+  """ The transaction definition, which could be represented as script and contract """
 
   class Record(object):
+    """ Trading record for general transaction """
     def __init__(self, address=None, value=0, r_type="input", state=None):
       """
       r_type: input | output
@@ -121,6 +99,7 @@ class Transaction(object):
     self.hash = hash
     self.inputs = []
     self.outputs = []
+    self.timestamp = int(time.time() * 1000)
 
   def __repr__(self):
     return 'TX: ' + self.hash.hex()
@@ -134,6 +113,8 @@ class Transaction(object):
     return self
 
 class Wallet(object):
+  """ The wallet is just a key keeper """
+
   def __init__(self, key=None):
     if key:
       self.key = key
@@ -146,6 +127,8 @@ class Wallet(object):
     return self.key.address
 
 class Key(object):
+  """ Methods for key and address generation """
+
   def __init__(self):
     self.private_key = None
     self.public_key = None
@@ -180,17 +163,28 @@ class Key(object):
 
 
 class Route(object):
+  """ A routing map for network functionality """
+
   def do_route(self, obj):
     ({
       dict: self.r_dict,
       set: self.r_set,
       list: self.r_list,
+      Block: self.r_block,
       Transaction: self.r_tx
     })[type(obj)](obj)
 
   def __init__(self, obj, transport):
     self.transport = transport
     self.do_route(obj)
+
+  def r_block(self, block):
+    if block.header_hash == state['blockchain'][0].header_hash:
+      return None
+
+    # can add verification for block here
+    state['blockchain'].append(block)
+    state['tx_pool'] = set()
 
   def r_set(self, s):
     [self.do_route(i) for i in s]
@@ -199,17 +193,24 @@ class Route(object):
     [self.do_route(i) for i in lst]
   
   def r_tx(self, tx):
+    # can add verification for transaction here
     state['tx_pool'].add(tx)
-  
+
   def r_dict(self, input):
+    msg = []
     if 'sync_tx_pool' in input:
-      self.transport.write(pickle.dumps(state['tx_pool']))
+      msg.append(state['tx_pool'])
     
     if 'sync_blockchain' in input:
-      self.transport.write(pickle.dumps(state['blockchain']))
+      msg.append(state['blockchain'])
+
+    if msg:
+      self.transport.write(pickle.dumps(msg))
 
 
 class Network(object):
+  """ The network utility """
+
   class ServerProtocol(asyncio.Protocol): 
     def connection_made(self, transport):
       peername = transport.get_extra_info('peername') 
@@ -220,6 +221,8 @@ class Network(object):
       print('Server -> Data received length: {}'.format(len(data)))
       obj = pickle.loads(data)
       Route(obj, self.transport)
+
+      # network spread can be added here
       self.transport.close()
 
   class ClientProtocol(asyncio.Protocol): 
@@ -245,14 +248,17 @@ class Network(object):
     server = self.loop.run_until_complete(coro_server)
 
   async def send(self, host, port, msg):
+    """ Coroutine sending function for network """
+
     try:
       await self.loop.create_connection(lambda: Network.ClientProtocol(msg, self.loop), host, port)
     except ConnectionRefusedError:
       print('Conncection refused by address: {}:{}'.format(host, port))
 
 
-
 async def routine(network):
+  """ Definition for blockchain node daily work """
+
   # init sync
   await network.send(state['peers'][0][0], 
     int(state['peers'][0][1]), 
@@ -263,14 +269,30 @@ async def routine(network):
 
     print('State: {}'.format(state))
 
+    # randomly generate transaction for test
     tx = Transaction(os.urandom(32))
     state['tx_pool'].add(tx)
-
+      
+    # send the new transaction
     for peer in state['peers']:
       await network.send(peer[0], int(peer[1]), pickle.dumps(tx, 0))
 
+    # randomly select block creator (should be replaced by solid consensus algorithm)
+    if int.from_bytes(os.urandom(8), 'little') < 1e18:
+      transactions = list(state['tx_pool']) # should sort
+      merkleroot = Block.Merkle.gen_root(transactions) 
+      block = Block(state['blockchain'][-1], merkleroot, transactions)
+      state['blockchain'].append(block)
+      state['tx_pool'] = set()
+
+      print('============ Block Created ===========')
+      for peer in state['peers']:
+        await network.send(peer[0], int(peer[1]), pickle.dumps(block, 0))
+
 
 def main():
+  """ Using event loop from asyncio to struct the network I/O and routine funciton """
+
   loop = asyncio.get_event_loop()
   network = Network(loop, state['port'])
   loop.run_until_complete(routine(network))
@@ -292,9 +314,11 @@ if __name__ == '__main__':
   if not args.remote:
     raise Exception('Please set -remote for peer connection')
 
+  # state init here
   state['port'] = args.port
-
   remote_addrs = [i.split(':') for i in args.remote.split(',')]
   state['peers'] = remote_addrs
+  # every node should have the gensis block
+  state['blockchain'] = [Block()]
 
   main()
