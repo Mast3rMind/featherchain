@@ -24,6 +24,3 @@ for i in range(0, 5 + int(random.random() * 100)):
   chain.append(block)
 
 print(chain)
-
-
-featherchain.main()
