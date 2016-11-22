@@ -33,7 +33,7 @@ Blocks:
 
 """
 
-import os, sys, hashlib, time
+import os, sys, hashlib, time, argparse
 import seccure
 import asyncio
 
@@ -179,8 +179,8 @@ class Network(object):
     def data_received(self, data):
       message = data.decode()
       print('Server -> Data received: {!r}'.format(message))
-      print('Server -> Send: {!r}'.format(b'I am addrA, I received your msg.')) 
-      msg = b'I am addrA, I received your msg.'
+      msg = b'I am ' + str(state['port']).encode() + b', I received your msg.'
+      print('Server -> Send: {!r}'.format(msg)) 
       self.transport.write(msg)
       self.transport.close()
 
@@ -211,17 +211,42 @@ class Network(object):
     except ConnectionRefusedError:
       print('Conncection refused by address: {}:{}'.format(host, port))
 
+state = {
+  'port': 8000,
+  'peers': []
+}
 
 async def routine(network):
   while True:
-    await network.send('127.0.0.1', 8000, b'test')
+    for peer in state['peers']:
+      await network.send(peer[0], int(peer[1]), b'test')
     await asyncio.sleep(1)
 
 def main():
   loop = asyncio.get_event_loop()
-  network = Network(loop, 8000)
+  network = Network(loop, state['port'])
   loop.run_until_complete(routine(network))
   try:
     loop.run_forever() 
   except KeyboardInterrupt:
     pass
+
+if __name__ == '__main__':
+  parser = argparse.ArgumentParser()
+  parser.add_argument("-port", type=int, help="set the current node port for listening")
+  parser.add_argument("-remote", help="""set remote nodes address for connection.
+    example: 127.0.0.1:8001,127.0.0.1:8002,...""")
+  args = parser.parse_args()
+  
+  if not args.port:
+    raise Exception('Please set -port for service listening')
+
+  if not args.remote:
+    raise Exception('Please set -remote for peer connection')
+
+  state['port'] = args.port
+
+  remote_addrs = [i.split(':') for i in args.remote.split(',')]
+  state['peers'] = remote_addrs
+
+  main()
