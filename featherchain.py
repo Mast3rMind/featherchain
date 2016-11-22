@@ -35,13 +35,16 @@ Blocks:
 
 import os, sys, hashlib, time
 import seccure
+import asyncio
 
 class Block(object):
   def __init__(self, prev_block=None, merkleroot=None, transactions=[]):
     if not prev_block:
+      # here is the definition for genesis block    
       self.block_height = 1
       self.header_hash = hashlib.sha256(hashlib.sha256(bytes(bytearray.fromhex(hex(1479711288)[2:]))).digest()).digest()
     else:
+      # here is general block creation
       self.header = {
         "prev_block_hash": prev_block.header_hash,
         "timestamp": int(time.time()),
@@ -82,6 +85,7 @@ class Block(object):
 
       return hash_lst[0]
 
+    @staticmethod
     def check_leaf(merkle_root, merkle_path):
       def merge(node):
         if len(node) == 1:
@@ -163,3 +167,61 @@ class Key(object):
     self.address = ripemd160.digest()
     return self.address
 
+
+class Network(object):
+
+  class ServerProtocol(asyncio.Protocol): 
+    def connection_made(self, transport):
+      peername = transport.get_extra_info('peername') 
+      print('Server -> Connection from {}'.format(peername)) 
+      self.transport = transport
+
+    def data_received(self, data):
+      message = data.decode()
+      print('Server -> Data received: {!r}'.format(message))
+      print('Server -> Send: {!r}'.format(b'I am addrA, I received your msg.')) 
+      msg = b'I am addrA, I received your msg.'
+      self.transport.write(msg)
+      self.transport.close()
+
+
+  class ClientProtocol(asyncio.Protocol): 
+    def __init__(self, message, loop):
+      self.message = message
+      self.loop = loop
+
+    def connection_made(self, transport): 
+      transport.write(self.message) 
+      print('Client -> Data sent: {!r}'.format(self.message))
+
+    def data_received(self, data):
+      print('Client -> Data received: {!r}'.format(data.decode()))
+
+    def connection_lost(self, exc):
+      print('Client -> The server closed the connection') 
+
+  def __init__(self, event_loop, serve_port):
+    self.loop = event_loop
+    coro_server = self.loop.create_server(Network.ServerProtocol, '0.0.0.0', serve_port) 
+    server = self.loop.run_until_complete(coro_server)
+
+  async def send(self, host, port, msg):
+    try:
+      await self.loop.create_connection(lambda: Network.ClientProtocol(msg, self.loop), host, port)
+    except ConnectionRefusedError:
+      print('Conncection refused by address: {}:{}'.format(host, port))
+
+
+async def routine(network):
+  while True:
+    await network.send('127.0.0.1', 8000, b'test')
+    await asyncio.sleep(1)
+
+def main():
+  loop = asyncio.get_event_loop()
+  network = Network(loop, 8000)
+  loop.run_until_complete(routine(network))
+  try:
+    loop.run_forever() 
+  except KeyboardInterrupt:
+    pass

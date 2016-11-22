@@ -2,6 +2,7 @@ import featherchain
 import hashlib
 import os
 import random
+import asyncio
 
 fck = featherchain.Key()
 fck.gen_private_key()
@@ -23,3 +24,6 @@ for i in range(0, 5 + int(random.random() * 100)):
   chain.append(block)
 
 print(chain)
+
+
+featherchain.main()
