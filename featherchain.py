@@ -202,10 +202,10 @@ class Route(object):
     state['tx_pool'].add(tx)
   
   def r_dict(self, input):
-    if 'ask_tx_pool' in input:
+    if 'sync_tx_pool' in input:
       self.transport.write(pickle.dumps(state['tx_pool']))
     
-    if 'ask_blockchain' in input:
+    if 'sync_blockchain' in input:
       self.transport.write(pickle.dumps(state['blockchain']))
 
 
@@ -254,7 +254,9 @@ class Network(object):
 
 async def routine(network):
   # init sync
-  await network.send(state['peers'][0][0], int(state['peers'][0][1]), pickle.dumps({'ask_tx_pool': 1}, 0))
+  await network.send(state['peers'][0][0], 
+    int(state['peers'][0][1]), 
+    pickle.dumps({'sync_tx_pool': 1, 'sync_blockchain': 1}, 0))
 
   while True:
     await asyncio.sleep(10)
