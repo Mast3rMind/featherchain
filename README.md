@@ -1,5 +1,5 @@
 # featherchain
-basic blockchain prototype written in Python in one file
+basic blockchain prototype written in Python
 
 --- 
 
