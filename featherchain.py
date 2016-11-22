@@ -33,9 +33,16 @@ Blocks:
 
 """
 
-import os, sys, hashlib, time, argparse
+import os, sys, hashlib, time, pickle, argparse
 import seccure
 import asyncio
+
+state = {
+  'port': 8000,
+  'peers': [],
+  'blockchain': [],
+  'tx_pool': set()
+}
 
 class Block(object):
   def __init__(self, prev_block=None, merkleroot=None, transactions=[]):
@@ -98,6 +105,7 @@ class Block(object):
       return merge(merkle_path) == merkle_root
 
 class Transaction(object):
+
   class Record(object):
     def __init__(self, address=None, value=0, r_type="input", state=None):
       """
@@ -114,12 +122,15 @@ class Transaction(object):
     self.inputs = []
     self.outputs = []
 
+  def __repr__(self):
+    return 'TX: ' + self.hash.hex()
+
   def append_input(self, address, value):
-    self.inputs.append(Record(address, value, "input"))
+    self.inputs.append(Transaction.Record(address, value, "input"))
     return self
 
   def append_output(self, address, value, state):
-    self.outputs.append(Record(address, value, "output", state))
+    self.outputs.append(Transaction.Record(address, value, "output", state))
     return self
 
 class Wallet(object):
@@ -168,8 +179,37 @@ class Key(object):
     return self.address
 
 
-class Network(object):
+class Route(object):
+  def do_route(self, obj):
+    ({
+      dict: self.r_dict,
+      set: self.r_set,
+      list: self.r_list,
+      Transaction: self.r_tx
+    })[type(obj)](obj)
 
+  def __init__(self, obj, transport):
+    self.transport = transport
+    self.do_route(obj)
+
+  def r_set(self, s):
+    [self.do_route(i) for i in s]
+
+  def r_list(self, lst):
+    [self.do_route(i) for i in lst]
+  
+  def r_tx(self, tx):
+    state['tx_pool'].add(tx)
+  
+  def r_dict(self, input):
+    if 'ask_tx_pool' in input:
+      self.transport.write(pickle.dumps(state['tx_pool']))
+    
+    if 'ask_blockchain' in input:
+      self.transport.write(pickle.dumps(state['blockchain']))
+
+
+class Network(object):
   class ServerProtocol(asyncio.Protocol): 
     def connection_made(self, transport):
       peername = transport.get_extra_info('peername') 
@@ -177,28 +217,27 @@ class Network(object):
       self.transport = transport
 
     def data_received(self, data):
-      message = data.decode()
-      print('Server -> Data received: {!r}'.format(message))
-      msg = b'I am ' + str(state['port']).encode() + b', I received your msg.'
-      print('Server -> Send: {!r}'.format(msg)) 
-      self.transport.write(msg)
+      print('Server -> Data received length: {}'.format(len(data)))
+      obj = pickle.loads(data)
+      Route(obj, self.transport)
       self.transport.close()
-
 
   class ClientProtocol(asyncio.Protocol): 
     def __init__(self, message, loop):
       self.message = message
       self.loop = loop
-
+      self.transport = None
+      
     def connection_made(self, transport): 
+      self.transport = transport
       transport.write(self.message) 
-      print('Client -> Data sent: {!r}'.format(self.message))
 
     def data_received(self, data):
-      print('Client -> Data received: {!r}'.format(data.decode()))
+      obj = pickle.loads(data)
+      Route(obj, self.transport)
 
     def connection_lost(self, exc):
-      print('Client -> The server closed the connection') 
+      pass
 
   def __init__(self, event_loop, serve_port):
     self.loop = event_loop
@@ -211,16 +250,23 @@ class Network(object):
     except ConnectionRefusedError:
       print('Conncection refused by address: {}:{}'.format(host, port))
 
-state = {
-  'port': 8000,
-  'peers': []
-}
+
 
 async def routine(network):
+  # init sync
+  await network.send(state['peers'][0][0], int(state['peers'][0][1]), pickle.dumps({'ask_tx_pool': 1}, 0))
+
   while True:
+    await asyncio.sleep(10)
+
+    print('State: {}'.format(state))
+
+    tx = Transaction(os.urandom(32))
+    state['tx_pool'].add(tx)
+
     for peer in state['peers']:
-      await network.send(peer[0], int(peer[1]), b'test')
-    await asyncio.sleep(1)
+      await network.send(peer[0], int(peer[1]), pickle.dumps(tx, 0))
+
 
 def main():
   loop = asyncio.get_event_loop()
